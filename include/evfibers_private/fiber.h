@@ -28,6 +28,7 @@
 #include <sys/queue.h>
 #include <evfibers/fiber.h>
 #include <evfibers_private/trace.h>
+#include <evfibers_private/kvec.h>
 #include <coro.h>
 #include <vrb.h>
 
@@ -57,7 +58,8 @@ TAILQ_HEAD(fiber_destructor_tailq, fbr_destructor);
 LIST_HEAD(fiber_list, fbr_fiber);
 
 struct fbr_fiber {
-	uint64_t id;
+	uint32_t id;
+	uint32_t fibers_index;
 	char name[FBR_MAX_FIBER_NAME];
 	fbr_fiber_func_t func;
 	void *func_arg;
@@ -75,6 +77,7 @@ struct fbr_fiber {
 	struct {
 		LIST_ENTRY(fbr_fiber) reclaimed;
 		LIST_ENTRY(fbr_fiber) children;
+		LIST_ENTRY(fbr_fiber) transfer_pending;
 	} entries;
 	struct fiber_destructor_tailq destructors;
 	void *user_data;
@@ -82,6 +85,10 @@ struct fbr_fiber {
 	int no_reclaim;
 	int want_reclaim;
 	struct fbr_cond_var reclaim_cond;
+	struct {
+		int enabled;
+		int flags;
+	} foreign;
 };
 
 TAILQ_HEAD(mutex_tailq, fbr_mutex);
@@ -108,11 +115,20 @@ struct fbr_context_private {
 	struct fbr_fiber root;
 	struct fiber_list reclaimed;
 	struct ev_async pending_async;
+	struct ev_async loop_wakeup_async;
 	struct fbr_id_tailq pending_fibers;
 	int backtraces_enabled;
-	uint64_t last_id;
+	uint32_t last_id;
 	uint64_t key_free_mask;
 	struct fbr_async_slist free_workers;
+	struct {
+		kvec_t(struct fbr_fiber *) fibers;
+		uint32_t new_id;
+	} ids;
+	struct {
+		kvec_t(fbr_id_t) transfer_pending;
+		kvec_t(fbr_id_t) transfer_pending_copy;
+	} foreign;
 
 	struct ev_loop *loop;
 };
